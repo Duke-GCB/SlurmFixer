@@ -9,6 +9,7 @@ import argparse
 import subprocess
 
 DB_CONFIG_FILENAME = '/etc/slurm/slurmdbd.conf'
+KILL_SCRIPT_FILENAME = '/tmp/SlurmFixer-kill-orphans.sh'
 CLUSTER_NAME = 'hardac'
 # list job IDS for currently running processes without printing a header
 QUEUE_LIST_COMMAND = ['squeue', '-h', '-o', '"%A"']
@@ -26,6 +27,7 @@ SKIP_USERS = [
     'nscd',
     '68',
 ]
+FIND_ORPHAN_DASHES = 80
 
 
 class Config(object):
@@ -170,17 +172,51 @@ def find_orphans():
     """
     Print jobs that are running on non-service accounts on the nodes that squeue isn't aware of.
     """
+    # make a list of orphans
     node_names = get_node_names()
     running_user_node_names = set(get_running_user_node_names())
-    print_orphan("NODE", "USER", "PID", "CMD")
+    orphan_list = [] 
     for node_name, user, pid, cmd in get_node_processes(node_names):
         try:
                 user_node_name = "{}|{}".format(user, node_name)
                 if not user_node_name in running_user_node_names:
-                    print_orphan(node_name, user, pid, cmd)
+                    orphan_list.append((node_name, user, pid, cmd))
         except:
             sys.stderr.write("Failed to check node {}\n.".format(node_name))
 
+    create_kill_orphan_script(orphan_list, KILL_SCRIPT_FILENAME)
+
+    # Print out results
+    print("")
+    print_find_orphans_dashes()
+    print_orphan("NODE", "USER", "PID", "CMD")
+    print_find_orphans_dashes()
+    for node_name, user, pid, cmd in orphan_list:
+        print_orphan(node_name, user, pid, cmd)
+    print_find_orphans_dashes()
+    print("")
+    print("Script to kill orphans written to {}".format(KILL_SCRIPT_FILENAME))
+    print("")
+
+
+def print_find_orphans_dashes():
+    """
+    Print out a row of dashes for displaying table of orphan processes.
+    """
+    print("=" * FIND_ORPHAN_DASHES)
+
+
+def create_kill_orphan_script(orphan_list, output_filename):
+    """
+    Write out a text file to output_filename with commands to kill processes in orphan_list.
+    :param orphan_list: [(node_name,user,pid,cmd)]: list of processes we should add kill commands for
+    :param output_filename: str: where we should write kill commands to
+    """
+    with open(output_filename, 'w') as outfile:
+        for node_name, user, pid, cmd in orphan_list:
+            line = 'ssh {} kill {}\n'.format(node_name, pid)
+            outfile.write(line)
+      
 
 def print_orphan(node_name, user, pid, cmd):
     """
