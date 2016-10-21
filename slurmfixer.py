@@ -173,9 +173,8 @@ def find_orphans():
     node_names = get_node_names()
     running_user_node_names = set(get_running_user_node_names())
     print_orphan("NODE", "USER", "PID", "CMD")
-    for node_name in node_names:
+    for node_name, user, pid, cmd in get_node_processes(node_names):
         try:
-            for user, pid, cmd in get_node_processes(node_name):
                 user_node_name = "{}|{}".format(user, node_name)
                 if not user_node_name in running_user_node_names:
                     print_orphan(node_name, user, pid, cmd)
@@ -192,34 +191,30 @@ def print_orphan(node_name, user, pid, cmd):
 
 def get_node_names():
     """
-    Get a list of node names that make up our cluster.
+    Get the compsite node names that make up our cluster.
     """
     node_names = []
     composite_names_str = subprocess.check_output(NODE_LIST_COMMAND).decode("utf-8").strip()
-    for compressed_name in name_string_to_list(composite_names_str):
-        expand_node_names_command = EXPAND_NODE_NAMES_BASE_COMMAND[:]
-        expand_node_names_command.append(compressed_name)
-        expanded = subprocess.check_output(expand_node_names_command).decode("utf-8").strip()
-        node_names.extend(expanded.split('\n'))
-    return node_names
+    return composite_names_str
 
 
-def get_node_processes(node_name):
+def get_node_processes(composite_node_name):
     """
-    Get a list of (user, pid, command) of all processes running on a node.
-    :param node_name: str: name of the node we will ssh to and get process listing.
-    :return: [(user,pid,command),...]: processes running the node
+    Get a list of (node_name, user, pid, command) of all processes running on a node.
+    :param composite_node_name: str: composite name of the nodes we will ssh to and get process listing.
+    :return: [(node_name,user,pid,command),...]: processes running the node
     """
     node_processes = []
-    ps_command = ["ssh", node_name, "ps", "-e", "--no-headers", "-o", "\"%U|%p|%a\""]
+    ps_command = ["sudo", "pdsh", "-w", composite_node_name, "ps", "-e", "--no-headers", "-o", "\"%U|%p|%a\""]
     lines = subprocess.check_output(ps_command).decode("utf-8").strip().split('\n')
     for line in lines:
-        parts = line.strip().split('|')
-        user = parts[0].strip()
-        pid = parts[1].strip()
-        cmd = parts[2].strip()
+        parts = [part.strip() for part in line.strip().split('|')]
+        node_name_and_user_parts = parts[0]
+        pid = parts[1]
+        cmd = parts[2]
+        node_name,user = [part.strip() for part in node_name_and_user_parts.split(':')]
         if not user in SKIP_USERS:
-            node_processes.append((user, pid, cmd))
+            node_processes.append((node_name, user, pid, cmd))
     return node_processes
 
 
